@@ -88,35 +88,64 @@
             stream.next();
             return null;
         }
+
+        // If XML mode is not in base state, allow for JavaScript comments
+        // by passing control to JavaScript mode and re-gaining control after
+        // comment completion.
+        if (state.modeStates.xml.state.name != "baseState") {
+          if (stream.match("/*", false)) {
+            state.nextMode = "js";
+            state.context.inMultiLineComment = true;
+            return null;
+          } else if (stream.match("//", false)) {
+            state.nextMode = "js";
+            state.context.inInlineComment = true;
+            return null;
+          }
+        }
       }
 
-      if (state.currentMode == "js" && state.context.inJSExpression) {
-        // Count the times that "{" has been used in the current JavaScript
-        // expression, in order to exit JavaScript mode only when no dangling
-        // "{" exists.
-        if (stream.peek() == "{") {
-          state.context.jsExpressionOpenBraces++;
+      if (state.currentMode == "js") {
+        // If JSX multiline comment ending detected, when in JavaScript mode
+        // handle control to XML mode afterwards.
+        if (state.context.inMultiLineComment && stream.match(/.*\*\//, false)) {
+          state.nextMode = "xml";
+          state.context.inMultiLineComment = false;
+        // If editor is in JSX inline comment highlighting, when in JavaScript
+        // mode handle control to XML mode afterwards.
+        } else if (state.context.inInlineComment) {
+          state.nextMode = "xml";
+          state.context.inInlineComment = false;
         }
-        // Detecting a "}" when in a JavaScript expression means that either
-        // the JavaScript expression finished and we should return back to XML
-        // mode or that an internal JavaScript object got closed.
-        else if (stream.peek() == "}") {
-          if (!state.context.jsExpressionOpenBraces) {
-            // If the JavaScript expression that just finished is an attribute
-            // value the XML parser is still waiting for a valid XML attribute
-            // value; text enclosed in quotes or double-quotes, or a single
-            // word. We should change the state of the XML parser to move
-            // forward and not wait for an XML attribute value.
-            if (state.modeStates.xml.state.name == "attrValueState") {
-              state.modeStates.xml.state = state.modeStates.xml.state("string");
-            }
 
-            // Do not advance character in JavaScript mode. Pass control to XML
-            // mode.
-            state.nextMode = "xml";
-            return null;
-          } else {
-            state.context.jsExpressionOpenBraces--;
+        if (state.context.inJSExpression) {
+          // Count the times that "{" has been used in the current JavaScript
+          // expression, in order to exit JavaScript mode only when no dangling
+          // "{" exists.
+          if (stream.peek() == "{") {
+            state.context.jsExpressionOpenBraces++;
+          }
+          // Detecting a "}" when in a JavaScript expression means that either
+          // the JavaScript expression finished and we should return back to
+          // XML mode or that an internal JavaScript object got closed.
+          else if (stream.peek() == "}") {
+            if (!state.context.jsExpressionOpenBraces) {
+              // If the JavaScript expression that just finished is an
+              // attribute value the XML parser is still waiting for a valid
+              // XML attribute value; text enclosed in quotes or double-quotes,
+              // or a single word. We should change the state of the XML parser
+              // to move forward and not wait for an XML attribute value.
+              if (state.modeStates.xml.state.name == "attrValueState") {
+                state.modeStates.xml.state = state.modeStates.xml.state("string");
+              }
+
+              // Do not advance character in JavaScript mode. Pass control to
+              // XML mode.
+              state.nextMode = "xml";
+              return null;
+            } else {
+              state.context.jsExpressionOpenBraces--;
+            }
           }
         }
       }
@@ -151,7 +180,9 @@
             inJSExpression: state.context.inJSExpression,
             inClosingTag: state.context.inClosingTag,
             inAttrJSExpression: state.context.inAttrJSExpression,
-            jsExpressionOpenBraces: state.context.jsExpressionOpenBraces
+            jsExpressionOpenBraces: state.context.jsExpressionOpenBraces,
+            inMultiLineComment: state.context.inMultiLineComment,
+            inInlineComment: state.context.inInlineComment
           },
           currentMode: state.currentMode,
           nextMode: state.nextMode
