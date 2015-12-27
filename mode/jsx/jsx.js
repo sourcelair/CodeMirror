@@ -26,34 +26,54 @@
           multilineTagIndentPastTag: parserConfig.multilineTagIndentPastTag
         }),
         jsState = jsMode.startState(),
-        xmlState = xmlMode.startState();
+        xmlState = xmlMode.startState(),
+        openingTag = /^\s*<[^/]+>/,
+        closingTag = /^\s*<\/.+>/,
+        selfClosingTag = /^\s*<.+\/\s*>/;
 
     function tokenBase(stream, state) {
-      if (stream.peek() == "<") {
-        if (state.currentMode != "xml") {
-          state.currentMode = "xml";
-        } else if (stream.match("</", false)) {
-          if (state.currentMode == "xml") {
-            state.possibleTagClosing = true;
-          }
-        }
-      } else if (stream.peek() == ">") {
-        if (state.possibleTagClosing && state.currentMode == "xml") {
+      // If current mode is XML but editor has been marked to switch back to
+      // JavaScript in next iteration, switch mode to JavaScript.
+      if (state.currentMode == "xml") {
+        var switchToJS = state.shouldSwitchToJS && state.tagClosed;
+
+        if (switchToJS) {
           state.currentMode = "js";
-          delete state.possibleTagClosing;
+          // Reset switches
+          state.shouldSwitchToJS = false;
+          state.tagClosed = false;
         }
-      } else if (stream.match("/>", false)) {
-        if (state.currentMode == "xml") {
-          state.possibleTagClosing = true;
+      }
+
+      // If current mode is not XML and an XML opening, closing or self-closing
+      // tag gets detected next, switch editor mode to XML.
+      if (state.currentMode != "xml") {
+        var switchToXML = stream.match(openingTag, false) ||
+                          stream.match(closingTag, false) ||
+                          stream.match(selfClosingTag, false);
+        if (switchToXML) {
+          state.currentMode = "xml";
+        }
+      }
+
+      // If the editor is runing in XML mode and an XML closing or self-closing
+      // tag gets detected, we should start with JavaScript-first parsing, after
+      // advancing the next ">" character.
+      if (state.currentMode == "xml" && !state.shouldSwitchToJS) {
+        state.shouldSwitchToJS = stream.match(closingTag, false) ||
+                                 stream.match(selfClosingTag, false);
+      }
+
+      // If an XML closing or self-closing tag has been detected, make sure to
+      // save it in the state, when the tag gets closed.
+      if (state.currentMode == "xml") {
+        if (state.shouldSwitchToJS && (stream.peek() == ">")) {
+          state.tagClosed = true;
         }
       }
 
       if (state.currentMode == "xml") {
         return xmlMode.token(stream, xmlState);
-      }
-
-      if (state.currentMode != "js") {
-        state.currentMode = "js";
       }
 
       return jsMode.token(stream, jsState);
@@ -62,7 +82,8 @@
     return {
       startState: function () {
         return {
-          tokenize: tokenBase
+          tokenize: tokenBase,
+          currentMode: 'js' // We are defaulting to JavaScript as the initial mode
         };
       },
       token: function (stream, state) {
