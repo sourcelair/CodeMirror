@@ -167,7 +167,10 @@
         };
       },
       indent: function (state, textAfter, fullLine) {
-        return modes[state.currentMode].indent(state, textAfter, fullLine);
+        var currentMode = modes[state.currentMode],
+            currentModeState = state.modeStates[state.currentMode];
+
+        return currentMode.indent(currentModeState, textAfter, fullLine);
       },
       electricInput: /^\s*(?:case .*?:|default:|\{|\})$/,
       blockCommentStart: "/*",
