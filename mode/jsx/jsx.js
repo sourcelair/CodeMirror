@@ -75,15 +75,14 @@
           state.context.inTag = false;
           state.context.nextMode = "js";
         }
-      }
 
-      // Detecting a "{" in XML mode means that a JavaScript expression
-      // is about to follow. We should switch to back to JavaScript mode in
-      // next iteration.
-      if (state.currentMode == "xml") {
-        var attributeJavaScriptExpression = (stream.peek() == "{"),
-            childJavaScriptExpression = (stream.match(/>\s*\{/, false));
+        // Detect JavaScript attribute and child expressions. Boolean
+        // expressions work fine out of the box.
+        var attributeJavaScriptExpression = (stream.peek() == "{");
 
+        // Detecting a "{" in XML mode means that a JavaScript expression
+        // is about to follow. We should switch to back to JavaScript mode in
+        // next iteration.
         if (attributeJavaScriptExpression) {
           state.context.inJSExpression = true;
           state.context.inAttrJSExpression = true;
