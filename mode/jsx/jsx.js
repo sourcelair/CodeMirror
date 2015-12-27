@@ -77,7 +77,16 @@
           }
           state.nextMode = "js";
           stream.next();
-          return "keyword";
+          return null;
+        }
+
+        // If a closing bracket gets detected, while we are in a JavaScript
+        // expression, exit the JavaScript expression.
+        if (stream.peek() == "}" && state.context.inJSExpression) {
+            state.context.inJSExpression = false;
+            state.context.inAttrJSExpression = false;
+            stream.next();
+            return null;
         }
       }
 
@@ -93,9 +102,6 @@
         // mode or that an internal JavaScript object got closed.
         else if (stream.peek() == "}") {
           if (!state.context.jsExpressionOpenBraces) {
-            state.context.inJSExpression = false;
-            state.context.inAttrJSExpression = false;
-
             // If the JavaScript expression that just finished is an attribute
             // value the XML parser is still waiting for a valid XML attribute
             // value; text enclosed in quotes or double-quotes, or a single
@@ -105,8 +111,9 @@
               state.modeStates.xml.state = state.modeStates.xml.state("string");
             }
 
+            // Do not advance character in JavaScript mode. Pass control to XML
+            // mode.
             state.nextMode = "xml";
-            stream.next();
             return null;
           } else {
             state.context.jsExpressionOpenBraces--;
