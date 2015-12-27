@@ -31,7 +31,13 @@
 <h2>JSX mode</h2>
 
 
-<div><textarea id="code" name="code">var content = <Container>{window.isLoggedIn ? <Nav /> : <Login />}</Container>;</textarea></div>
+<div><textarea id="code" name="code">var projects = this.props.projects.map(function(project) {
+  return <ProjectThumb name={project.name}
+           scm={project.scm}
+           pendingDeletion={project.pendingDeletion}
+           key={Date.now() + Math.random()}
+           thumbnailClickCallback={this.props.thumbnailClickCallback} />;
+}.bind(this));</textarea></div>
 
     <script>
       var editor = CodeMirror.fromTextArea(document.getElementById("code"), {

@@ -26,7 +26,8 @@
         }),
         openingTag = /^\s*<[^/]+>/,
         closingTag = /^\s*<\/.+>/,
-        selfClosingTag = /^\s*<.+\/\s*>/;
+        selfClosingTag = /^\s*<.+\/\s*>/,
+        incompleteTag = /^\s*<[^>]+$/;
 
     function tokenBase(stream, state) {
       // If current mode is XML but editor has been marked to switch back to
@@ -38,13 +39,13 @@
           // Reset switches
           state.shouldSwitchToJS = false;
           state.tagClosed = false;
-          state.switchToJS = true;
+          state.context.nextMode = "js";
         }
       }
 
-      if (state.switchToJS) {
+      if (state.context.nextMode == "js") {
         state.currentMode = "js";
-        state.switchToJS = false;
+        state.context.nextMode = null;
       }
 
       // If current mode is not XML and an XML opening, closing or self-closing
@@ -52,15 +53,16 @@
       if (state.currentMode != "xml" && !state.context.inAttrJSExpression) {
         var switchToXML = stream.match(openingTag, false) ||
                           stream.match(closingTag, false) ||
-                          stream.match(selfClosingTag, false);
+                          stream.match(selfClosingTag, false) ||
+                          stream.match(incompleteTag, false);
         if (switchToXML) {
-          state.switchToXML = "xml";
+          state.context.nextMode = "xml";
         }
       }
 
-      if (state.switchToXML) {
+      if (state.context.nextMode == "xml") {
         state.currentMode = "xml";
-        state.switchToXML = false;
+        state.context.nextMode = null;
       }
 
       // If the editor is runing in XML mode and an XML closing or self-closing
@@ -91,7 +93,7 @@
         if (attributeJavaScriptExpression) {
           state.context.inJSExpression = true;
           state.context.inAttrJSExpression = true;
-          state.switchToJS = true;
+          state.context.nextMode = "js";
           stream.next();
           return null;
         }
@@ -112,7 +114,7 @@
           state.xmlState.state = state.xmlState.state("string");
         }
 
-        state.switchToXML = true;
+        state.context.nextMode = "xml";
         stream.next();
         return null;
       }
@@ -140,7 +142,8 @@
           tokenize: state.tokenize,
           jsState: CodeMirror.copyState(jsMode, state.jsState),
           xmlState: CodeMirror.copyState(xmlMode, state.xmlState),
-          context: state.context
+          context: state.context,
+          currentMode: state.currentMode
         };
       },
       token: function (stream, state) {
