@@ -14,73 +14,60 @@
   "use strict";
 
   CodeMirror.defineMode("jsx", function(config, parserConfig) {
-    var jsMode = CodeMirror.getMode(config, {
-          name: "javascript"
-        }),
-        xmlMode = CodeMirror.getMode(config, {
-          name: "xml",
-          htmlMode: true,
-          multilineTagIndentFactor: parserConfig.multilineTagIndentFactor,
-          multilineTagIndentPastTag: parserConfig.multilineTagIndentPastTag,
-          allowMissing: true
-        }),
-        openingTag = /^\s*<[^/]+>/,
+    var openingTag = /^\s*<[^/]+>/,
         closingTag = /^\s*<\/.+>/,
         selfClosingTag = /^\s*<.+\/\s*>/,
-        incompleteTag = /^\s*<[^>]+$/;
+        incompleteTag = /^\s*<[^>]+$/,
+        modes = {
+          'js': CodeMirror.getMode(config, {
+            name: "javascript"
+          }),
+          'xml': CodeMirror.getMode(config, {
+            name: "xml",
+            htmlMode: true,
+            multilineTagIndentFactor: parserConfig.multilineTagIndentFactor,
+            multilineTagIndentPastTag: parserConfig.multilineTagIndentPastTag,
+            allowMissing: true
+          })
+        };
 
     function tokenBase(stream, state) {
-      // If current mode is XML but editor has been marked to switch back to
-      // JavaScript in next iteration, switch mode to JavaScript.
-      if (state.currentMode == "xml") {
-        var switchToJS = state.context.shouldSwitchToJS && state.context.tagClosed;
-
-        if (switchToJS) {
-          // Reset switches
-          state.context.shouldSwitchToJS = false;
-          state.context.tagClosed = false;
-          state.context.nextMode = "js";
-        }
-      }
-
-      if (state.context.nextMode == "js") {
-        state.currentMode = "js";
+      if (state.context.nextMode) {
+        state.currentMode = state.context.nextMode;
         state.context.nextMode = null;
       }
 
-      // If current mode is not XML and an XML opening, closing or self-closing
-      // tag gets detected next, switch editor mode to XML.
+      // If current mode is not XML and an XML tag opening gets detected next,
+      // switch editor mode to XML.
+      // ATTENTION: This should not happen inside an attribute JavaScript
+      // expression, since XML structures are not valid XML attributes.
       if (state.currentMode != "xml" && !state.context.inAttrJSExpression) {
-        var switchToXML = stream.match(openingTag, false) ||
-                          stream.match(closingTag, false) ||
-                          stream.match(selfClosingTag, false) ||
-                          stream.match(incompleteTag, false);
-        if (switchToXML) {
-          state.context.nextMode = "xml";
+        var tagOpen = stream.match(openingTag, false) ||
+                      stream.match(closingTag, false) ||
+                      stream.match(selfClosingTag, false) ||
+                      stream.match(incompleteTag, false);
+        if (tagOpen) {
+          state.currentMode = "xml";
         }
-      }
-
-      if (state.context.nextMode == "xml") {
-        state.currentMode = "xml";
-        state.context.nextMode = null;
       }
 
       // If the editor is runing in XML mode and an XML closing or self-closing
-      // tag gets detected, we should start with JavaScript-first parsing, after
-      // advancing the next ">" character or next "/>".
+      // tag gets detected, we should start with JavaScript-first parsing,
+      // after advancing the next ">" character or next "/>".
       if (state.currentMode == "xml" && !state.context.shouldSwitchToJS) {
         state.context.shouldSwitchToJS = stream.match(closingTag, false) ||
                                  stream.match(selfClosingTag, false);
       }
 
       // If an XML closing or self-closing tag or tag closure has been
-      // detected, make sure to save it in the state.
+      // detected, mode should switch to JavaScript in the next iteration.
       if (state.currentMode == "xml") {
         if (state.context.shouldSwitchToJS) {
-          state.context.tagClosed = (stream.peek() == ">");
+          if (stream.peek() == ">") {
+            state.context.nextMode = "js";
+          }
         } else if (stream.match("/>", false)) {
-          state.context.shouldSwitchToJS = true;
-          state.context.tagClosed = true;
+          state.context.nextMode = "js";
         }
       }
 
@@ -95,55 +82,72 @@
         if (attributeJavaScriptExpression) {
           state.context.inJSExpression = true;
           state.context.inAttrJSExpression = true;
+          state.context.jsExpressionOpenBraces = 0;
           state.context.nextMode = "js";
           stream.next();
           return null;
         }
       }
 
-      // Detecting a "}" when in a JavaScript expression means that the
-      // JavaScript expression finished and we should return back to XML mode.
-      if (state.currentMode == "js" && stream.peek() == "}" && state.context.inJSExpression) {
-        state.context.inJSExpression = false;
-        state.context.inAttrJSExpression = false;
-
-        // If the JavaScript expression that just finished is an attribute value
-        // the XML parser is still waiting for a valid XML attribute value;
-        // text enclosed in quotes or double-quotes, or a single word. We should
-        // change the state of the XML parser to move forward and not wait for
-        // an XML attribute value.
-        if (state.xmlState.state.name == "attrValueState") {
-          state.xmlState.state = state.xmlState.state("string");
+      if (state.currentMode == "js" && state.context.inJSExpression) {
+        // Count the times that "{" has been used in the current JavaScript
+        // expression, in order to exit JavaScript mode only when no dangling
+        // "{" exists.
+        if (stream.peek() == "{") {
+          state.context.jsExpressionOpenBraces++;
         }
+        // Detecting a "}" when in a JavaScript expression means that either
+        // the JavaScript expression finished and we should return back to XML
+        // mode or that an internal JavaScript object got closed.
+        else if (stream.peek() == "}") {
+          if (!state.context.jsExpressionOpenBraces) {
+            state.context.inJSExpression = false;
+            state.context.inAttrJSExpression = false;
 
-        state.context.nextMode = "xml";
-        stream.next();
-        return null;
+            // If the JavaScript expression that just finished is an attribute value
+            // the XML parser is still waiting for a valid XML attribute value;
+            // text enclosed in quotes or double-quotes, or a single word. We should
+            // change the state of the XML parser to move forward and not wait for
+            // an XML attribute value.
+            if (state.modeStates.xml.state.name == "attrValueState") {
+              state.modeStates.xml.state = state.modeStates.xml.state("string");
+            }
+
+            state.context.nextMode = "xml";
+            stream.next();
+            return null;
+          } else {
+            state.context.jsExpressionOpenBraces--;
+          }
+        }
       }
 
-      if (state.currentMode == "xml") {
-        return xmlMode.token(stream, state.xmlState);
-      }
+      var currentMode = modes[state.currentMode],
+          currentModeState = state.modeStates[state.currentMode];
 
-      return jsMode.token(stream, state.jsState);
+      return currentMode.token(stream, currentModeState);
     }
 
     return {
       startState: function () {
         return {
           tokenize: tokenBase,
-          currentMode: 'js', // Default to JavaScript as the initial mode,
+          currentMode: 'js',
           jsExpressionLevel: 0,
-          jsState: jsMode.startState(),
-          xmlState: xmlMode.startState(),
+          modeStates: {
+            'js': modes.js.startState(),
+            'xml': modes.xml.startState()
+          },
           context: {}
         };
       },
       copyState: function (state) {
         return {
           tokenize: state.tokenize,
-          jsState: CodeMirror.copyState(jsMode, state.jsState),
-          xmlState: CodeMirror.copyState(xmlMode, state.xmlState),
+          modeStates: {
+            'js': CodeMirror.copyState(modes.js, state.modeStates.js),
+            'xml': CodeMirror.copyState(modes.xml, state.modeStates.xml)
+          },
           context: state.context,
           currentMode: state.currentMode
         };
