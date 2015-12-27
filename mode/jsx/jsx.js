@@ -33,12 +33,12 @@
       // If current mode is XML but editor has been marked to switch back to
       // JavaScript in next iteration, switch mode to JavaScript.
       if (state.currentMode == "xml") {
-        var switchToJS = state.shouldSwitchToJS && state.tagClosed;
+        var switchToJS = state.context.shouldSwitchToJS && state.context.tagClosed;
 
         if (switchToJS) {
           // Reset switches
-          state.shouldSwitchToJS = false;
-          state.tagClosed = false;
+          state.context.shouldSwitchToJS = false;
+          state.context.tagClosed = false;
           state.context.nextMode = "js";
         }
       }
@@ -68,17 +68,19 @@
       // If the editor is runing in XML mode and an XML closing or self-closing
       // tag gets detected, we should start with JavaScript-first parsing, after
       // advancing the next ">" character or next "/>".
-      if (state.currentMode == "xml" && !state.shouldSwitchToJS) {
-        state.shouldSwitchToJS = stream.match(closingTag, false) ||
+      if (state.currentMode == "xml" && !state.context.shouldSwitchToJS) {
+        state.context.shouldSwitchToJS = stream.match(closingTag, false) ||
                                  stream.match(selfClosingTag, false);
       }
 
-      // If an XML closing or self-closing tag has been detected, make sure to
-      // save it in the state, when the tag gets closed.
+      // If an XML closing or self-closing tag or tag closure has been
+      // detected, make sure to save it in the state.
       if (state.currentMode == "xml") {
-        if (state.shouldSwitchToJS) {
-          state.tagClosed = (stream.peek() == ">") ||
-                            (stream.match("/>", false));
+        if (state.context.shouldSwitchToJS) {
+          state.context.tagClosed = (stream.peek() == ">");
+        } else if (stream.match("/>", false)) {
+          state.context.shouldSwitchToJS = true;
+          state.context.tagClosed = true;
         }
       }
 
@@ -101,7 +103,7 @@
 
       // Detecting a "}" when in a JavaScript expression means that the
       // JavaScript expression finished and we should return back to XML mode.
-      if (state.currentMode == "js" && stream.peek() == "}") {
+      if (state.currentMode == "js" && stream.peek() == "}" && state.context.inJSExpression) {
         state.context.inJSExpression = false;
         state.context.inAttrJSExpression = false;
 
