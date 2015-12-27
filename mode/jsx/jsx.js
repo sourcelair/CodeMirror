@@ -1,8 +1,6 @@
 // CodeMirror, copyright (c) by Marijn Haverbeke and others
 // Distributed under an MIT license: http://codemirror.net/LICENSE
 
-// TODO actually recognize syntax of TypeScript constructs
-
 (function(mod) {
   if (typeof exports == "object" && typeof module == "object") // CommonJS
     mod(require("../../lib/codemirror"), require("../javascript/javascript"),
@@ -51,7 +49,7 @@
 
       // If current mode is not XML and an XML opening, closing or self-closing
       // tag gets detected next, switch editor mode to XML.
-      if (state.currentMode != "xml") {
+      if (state.currentMode != "xml" && !state.context.inAttrJSExpression) {
         var switchToXML = stream.match(openingTag, false) ||
                           stream.match(closingTag, false) ||
                           stream.match(selfClosingTag, false);
@@ -83,20 +81,27 @@
       }
 
       // Detecting a "{" in XML mode means that a JavaScript expression
-      // is about to follow. We should switch to back to JavaScript mode and
-      // increment the JavaScript expression level by one.
+      // is about to follow. We should switch to back to JavaScript mode in
+      // next iteration.
       // Source: http://facebook.github.io/react/docs/jsx-in-depth.html#javascript-expressions
-      if (state.currentMode == "xml" && stream.peek() == "{") {
-        state.jsExpressionLevel++;
-        state.switchToJS = true;
-        stream.next();
-        return null;
+      if (state.currentMode == "xml") {
+        var attributeJavaScriptExpression = (stream.peek() == "{"),
+            childJavaScriptExpression = (stream.match(/>\s*\{/, false));
+
+        if (attributeJavaScriptExpression) {
+          state.context.inJSExpression = true;
+          state.context.inAttrJSExpression = true;
+          state.switchToJS = true;
+          stream.next();
+          return null;
+        }
       }
 
       // Detecting a "}" when in a JavaScript expression means that the
       // JavaScript expression finished and we should return back to XML mode.
       if (state.currentMode == "js" && stream.peek() == "}") {
-        state.jsExpressionLevel--;
+        state.context.inJSExpression = false;
+        state.context.inAttrJSExpression = false;
 
         // If the JavaScript expression that just finished is an attribute value
         // the XML parser is still waiting for a valid XML attribute value;
@@ -126,14 +131,16 @@
           currentMode: 'js', // Default to JavaScript as the initial mode,
           jsExpressionLevel: 0,
           jsState: jsMode.startState(),
-          xmlState: xmlMode.startState()
+          xmlState: xmlMode.startState(),
+          context: {}
         };
       },
       copyState: function (state) {
         return {
           tokenize: state.tokenize,
           jsState: CodeMirror.copyState(jsMode, state.jsState),
-          xmlState: CodeMirror.copyState(xmlMode, state.xmlState)
+          xmlState: CodeMirror.copyState(xmlMode, state.xmlState),
+          context: state.context
         };
       },
       token: function (stream, state) {
