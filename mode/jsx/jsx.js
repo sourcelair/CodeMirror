@@ -14,12 +14,7 @@
   "use strict";
 
   CodeMirror.defineMode("jsx", function(config, parserConfig) {
-    var openingTag = /^\s*<[^/]+>/,
-        closingTag = /^\s*<\/.+>/,
-        selfClosingTag = /^\s*<.+\/\s*>/,
-        incompleteTag = /^\s*<[^>]+$/,
-        incompleteClosingTag = /^\s*<\/[^>]$/,
-        tagOpen = /^\s*</,
+    var tagOpen = /^\s*</,
         closingTagOpen = /^\s*<\//,
         modes = {
           'js': CodeMirror.getMode(config, {
@@ -35,9 +30,9 @@
         };
 
     function tokenBase(stream, state) {
-      if (state.context.nextMode) {
-        state.currentMode = state.context.nextMode;
-        state.context.nextMode = null;
+      if (state.nextMode) {
+        state.currentMode = state.nextMode;
+        state.nextMode = null;
       }
 
       // If current mode is not XML and an XML tag opening gets detected next,
@@ -56,40 +51,33 @@
         if (stream.match(closingTagOpen, false)) {
           state.context.inClosingTag = true;
         }
-        // or if an tag opening gets detected, switch to JavaScript mode after
-        // "/>", if detected.
-        else if (stream.match(tagOpen, false)) {
-          state.context.inTag = true;
-        }
 
         // If a ">" got detected while we are in a self-closing tag, switch
         // to JavaScript mode in the next iteration.
         if (state.context.inClosingTag && stream.peek() == ">") {
           state.context.inClosingTag = false;
-          state.context.nextMode = "js";
+          state.nextMode = "js";
         }
 
-        // If a "/>" got detected while we are in a tag, switch
-        // to JavaScript mode in the next iteration.
-        if (state.context.inTag && stream.match("/>", false)) {
-          state.context.inTag = false;
-          state.context.nextMode = "js";
+        // Switch to JavaScript mode after "/>", if detected.
+        if (stream.match("/>", false)) {
+          state.nextMode = "js";
         }
-
-        // Detect JavaScript attribute and child expressions. Boolean
-        // expressions work fine out of the box.
-        var attributeJavaScriptExpression = (stream.peek() == "{");
 
         // Detecting a "{" in XML mode means that a JavaScript expression
         // is about to follow. We should switch to back to JavaScript mode in
         // next iteration.
-        if (attributeJavaScriptExpression) {
+        if (stream.peek() == "{") {
           state.context.inJSExpression = true;
-          state.context.inAttrJSExpression = true;
           state.context.jsExpressionOpenBraces = 0;
-          state.context.nextMode = "js";
+          if (state.modeStates.xml.state.name == "attrValueState") {
+            state.context.inAttrJSExpression = true;
+          } else {
+            state.context.inAttrJSExpression = false;
+          }
+          state.nextMode = "js";
           stream.next();
-          return null;
+          return "keyword";
         }
       }
 
@@ -117,7 +105,7 @@
               state.modeStates.xml.state = state.modeStates.xml.state("string");
             }
 
-            state.context.nextMode = "xml";
+            state.nextMode = "xml";
             stream.next();
             return null;
           } else {
@@ -137,7 +125,7 @@
         return {
           tokenize: tokenBase,
           currentMode: 'js',
-          jsExpressionLevel: 0,
+          nextMode: null,
           modeStates: {
             'js': modes.js.startState(),
             'xml': modes.xml.startState()
@@ -152,8 +140,14 @@
             'js': CodeMirror.copyState(modes.js, state.modeStates.js),
             'xml': CodeMirror.copyState(modes.xml, state.modeStates.xml)
           },
-          context: state.context,
-          currentMode: state.currentMode
+          context: {
+            inJSExpression: state.context.inJSExpression,
+            inClosingTag: state.context.inClosingTag,
+            inAttrJSExpression: state.context.inAttrJSExpression,
+            jsExpressionOpenBraces: state.context.jsExpressionOpenBraces
+          },
+          currentMode: state.currentMode,
+          nextMode: state.nextMode
         };
       },
       token: function (stream, state) {
