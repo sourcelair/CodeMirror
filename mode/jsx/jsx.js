@@ -18,6 +18,9 @@
         closingTag = /^\s*<\/.+>/,
         selfClosingTag = /^\s*<.+\/\s*>/,
         incompleteTag = /^\s*<[^>]+$/,
+        incompleteClosingTag = /^\s*<\/[^>]$/,
+        tagOpen = /^\s*</,
+        closingTagOpen = /^\s*<\//,
         modes = {
           'js': CodeMirror.getMode(config, {
             name: "javascript"
@@ -42,31 +45,34 @@
       // ATTENTION: This should not happen inside an attribute JavaScript
       // expression, since XML structures are not valid XML attributes.
       if (state.currentMode != "xml" && !state.context.inAttrJSExpression) {
-        var tagOpen = stream.match(openingTag, false) ||
-                      stream.match(closingTag, false) ||
-                      stream.match(selfClosingTag, false) ||
-                      stream.match(incompleteTag, false);
-        if (tagOpen) {
+        if (stream.match(tagOpen, false)) {
           state.currentMode = "xml";
         }
       }
 
-      // If the editor is runing in XML mode and an XML closing or self-closing
-      // tag gets detected, we should start with JavaScript-first parsing,
-      // after advancing the next ">" character or next "/>".
-      if (state.currentMode == "xml" && !state.context.shouldSwitchToJS) {
-        state.context.shouldSwitchToJS = stream.match(closingTag, false) ||
-                                 stream.match(selfClosingTag, false);
-      }
-
-      // If an XML closing or self-closing tag or tag closure has been
-      // detected, mode should switch to JavaScript in the next iteration.
       if (state.currentMode == "xml") {
-        if (state.context.shouldSwitchToJS) {
-          if (stream.peek() == ">") {
-            state.context.nextMode = "js";
-          }
-        } else if (stream.match("/>", false)) {
+        // If a closing tag gets detected, switch to JavaScript mode after
+        // next ">".
+        if (stream.match(closingTagOpen, false)) {
+          state.context.inClosingTag = true;
+        }
+        // or if an tag opening gets detected, switch to JavaScript mode after
+        // "/>", if detected.
+        else if (stream.match(tagOpen, false)) {
+          state.context.inTag = true;
+        }
+
+        // If a ">" got detected while we are in a self-closing tag, switch
+        // to JavaScript mode in the next iteration.
+        if (state.context.inClosingTag && stream.peek() == ">") {
+          state.context.inClosingTag = false;
+          state.context.nextMode = "js";
+        }
+
+        // If a "/>" got detected while we are in a tag, switch
+        // to JavaScript mode in the next iteration.
+        if (state.context.inTag && stream.match("/>", false)) {
+          state.context.inTag = false;
           state.context.nextMode = "js";
         }
       }
@@ -74,7 +80,6 @@
       // Detecting a "{" in XML mode means that a JavaScript expression
       // is about to follow. We should switch to back to JavaScript mode in
       // next iteration.
-      // Source: http://facebook.github.io/react/docs/jsx-in-depth.html#javascript-expressions
       if (state.currentMode == "xml") {
         var attributeJavaScriptExpression = (stream.peek() == "{"),
             childJavaScriptExpression = (stream.match(/>\s*\{/, false));
@@ -104,11 +109,11 @@
             state.context.inJSExpression = false;
             state.context.inAttrJSExpression = false;
 
-            // If the JavaScript expression that just finished is an attribute value
-            // the XML parser is still waiting for a valid XML attribute value;
-            // text enclosed in quotes or double-quotes, or a single word. We should
-            // change the state of the XML parser to move forward and not wait for
-            // an XML attribute value.
+            // If the JavaScript expression that just finished is an attribute
+            // value the XML parser is still waiting for a valid XML attribute
+            // value; text enclosed in quotes or double-quotes, or a single
+            // word. We should change the state of the XML parser to move
+            // forward and not wait for an XML attribute value.
             if (state.modeStates.xml.state.name == "attrValueState") {
               state.modeStates.xml.state = state.modeStates.xml.state("string");
             }
@@ -155,13 +160,24 @@
       token: function (stream, state) {
         return state.tokenize(stream, state);
       },
+      innerMode: function (state) {
+        return {
+          state: state.modeStates[state.currentMode],
+          mode: modes[state.currentMode]
+        };
+      },
+      indent: function (state, textAfter, fullLine) {
+        return modes[state.currentMode].indent(state, textAfter, fullLine);
+      },
+      electricInput: /^\s*(?:case .*?:|default:|\{|\})$/,
       blockCommentStart: "/*",
       blockCommentEnd: "*/",
-      jsMode: CodeMirror.getMode({}, "javascript"),
-      xmlMode: CodeMirror.getMode({}, "xml")
+      lineComment: "//",
+      fold: "brace",
+      closeBrackets: "()[]{}''\"\"``",
+      helperType: "javascript",
     };
   });
 
   CodeMirror.defineMIME("text/x-jsx", "jsx");
-
 });

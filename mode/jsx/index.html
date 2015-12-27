@@ -31,13 +31,171 @@
 <h2>JSX mode</h2>
 
 
-<div><textarea id="code" name="code">var projects = this.props.projects.map(function(project) {
-  return <ProjectThumb name={project.name}
-           scm={project.scm}
-           pendingDeletion={project.pendingDeletion}
-           key={Date.now() + Math.random()}
-           thumbnailClickCallback={this.props.thumbnailClickCallback} />;
-}.bind(this));</textarea></div>
+<div><textarea id="code" name="code">define(['react', 'react-dom', '../projects/projects'], function(React, ReactDOM, projects) {
+    'use strict';
+
+    var ProjectThumb = React.createClass({
+        handleXClick : function(e) {
+            e.stopPropagation();
+            projects.promptDelete(this.props.name);
+        },
+        handleThumbnailClick : function(e) {
+            e.stopPropagation();
+            if (typeof this.props.thumbnailClickCallback === 'function') {
+                this.props.thumbnailClickCallback();
+            }
+            ide.loadWorkspace(this.props.name);
+        },
+        render : function() {
+            var pending = (this.props.pendingDeletion) ? ' loading' : '';
+            return (
+                <div className={"project " + this.props.scm + "-project" + pending} title={this.props.name}>
+                    <span className="link" onClick={this.handleThumbnailClick}>{this.props.name}</span>
+                    <span className="delete-workspace" onClick={this.handleXClick}>×</span>
+                </div>
+            );
+        }
+    });
+
+    var NewProjectButton = React.createClass({
+        handleClick : function(e) {
+            e.stopPropagation();
+            if (typeof this.props.newButtonClickCallback === 'function') {
+                this.props.newButtonClickCallback();
+            }
+            ide.trigger('switch_project:create_project');
+        },
+        render : function() {
+            return (
+                <div className="add-new-project" title="Create a new project"
+                onClick={this.handleClick}>
+                    +
+                </div>
+            );
+        }
+    });
+
+    var ProjectsModalInnerWrapper = React.createClass({
+        render : function() {
+            var projects = this.props.projects.map(function(project) {
+                return <ProjectThumb name={project.name}
+                        scm={project.scm}
+                        pendingDeletion={project.pendingDeletion}
+                        key={Date.now() + Math.random()}
+                        thumbnailClickCallback={this.props.thumbnailClickCallback}/>;
+            }.bind(this));
+            return (
+                <div className="projects-wrapper">
+                    {projects}
+                    <NewProjectButton newButtonClickCallback={this.props.newButtonClickCallback}/>
+                </div>
+            );
+        }
+    });
+
+    var ProjectsModalHeader = React.createClass({
+        render : function() {
+            return (
+                <h2 className="dropdown-header unselectable">
+                    Projects
+                </h2>
+            );
+        }
+    });
+
+    var ProjectsModal = React.createClass({
+        getInitialState : function() {
+            return {
+                projects : []
+            };
+        },
+        updateState : function(projects) {
+            this.setState({projects: projects});
+        },
+        componentDidMount : function() {
+            var workspaceSelector = document.querySelector('#switch-project');
+            workspaceSelector.classList.add('unselectable');
+            workspaceSelector.onclick = this.toggle;
+            ide.on('projects:none', this.hide);
+            ide.on('projects:model:updated', this.updateState);
+
+        },
+        setDOMView : function(ref) {
+            this.DOMView = ref
+        },
+        isVisible : function isVisible() {
+            if (this.DOMView.style.display == 'block') {
+                return true;
+            } else {
+                return false;
+            }
+        },
+        pressEscToHide : function(e) {
+            if (e.keyCode === 27) {
+                this.hide();
+            }
+        },
+        clickToHide : function(e) {
+            var parentContainer = this.DOMView.parentNode;
+            if (e.target === parentContainer) {
+                this.hide();
+            }
+        },
+        show : function(callback) {
+            var _this = this,
+                parentContainer = this.DOMView.parentNode,
+                workspaceSelector = document.querySelector('#switch-project');
+            parentContainer.classList.add('fallback');
+            document.addEventListener('keydown', this.pressEscToHide);
+            parentContainer.addEventListener('click', this.clickToHide);
+            $(workspaceSelector).addClass("active");
+            setTimeout(function() {
+                $(_this.DOMView).slideDown(100, callback);
+            }, 50);
+        },
+        hide : function(callback) {
+            var parentContainer = this.DOMView.parentNode,
+                workspaceSelector = document.querySelector('#switch-project');
+            document.removeEventListener('keydown', this.pressEscToHide);
+            parentContainer.removeEventListener('click', this.clickToHide);
+            $(workspaceSelector).removeClass("active");
+            $(this.DOMView).slideUp(100, function() {
+                if (typeof callback == "function") {
+                    callback();
+                }
+            });
+            setTimeout(function() {
+                parentContainer.classList.remove('fallback');
+            }, 200);
+        },
+        toggle : function() {
+            if (this.isVisible()) {
+                this.hide();
+            } else {
+                this.show();
+            }
+        },
+        render : function() {
+            return (
+                <div ref={this.setDOMView}
+                className="workspace-list raised-medium"
+                style={{display: "none"}}>
+                    <ProjectsModalHeader />
+                    <ProjectsModalInnerWrapper projects={this.state.projects}
+                    thumbnailClickCallback={this.hide}
+                    newButtonClickCallback={this.hide} />
+                </div>
+            );
+        }
+    });
+
+    ReactDOM.render(
+        <ProjectsModal />,
+        document.getElementById('prompts-container')
+    );
+
+
+});</textarea></div>
 
     <script>
       var editor = CodeMirror.fromTextArea(document.getElementById("code"), {
@@ -50,8 +208,10 @@
     </script>
 
     <p>
-        JSX Mode...
+        JSX Mode for <a href="http://facebook.github.io/react">React</a>'s JavaScript syntax extension.
     </p>
+
+    <p>More info about JSX can be found at <a href="http://facebook.github.io/react/docs/jsx-in-depth.html">JSX in Depth</a></p>
 
     <p><strong>MIME types defined:</strong> <code>text/x-jsx</code>.</p>
   </article>
